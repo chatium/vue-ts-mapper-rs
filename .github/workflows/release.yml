@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, target: aarch64-apple-darwin, platform: darwin-arm64 }
+          - { os: macos-14, target: x86_64-apple-darwin, platform: darwin-x64 }
+          # glibc builds: musl would mean musl's malloc, which does not scale across threads
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, platform: linux-x64 }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, platform: linux-arm64 }
+          - { os: windows-2022, target: x86_64-pc-windows-msvc, platform: win32-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }} --bin vue-ts-mapper-rs
+      - name: Stage
+        shell: bash
+        run: |
+          mkdir -p "stage/${{ matrix.platform }}"
+          exe=vue-ts-mapper-rs
+          [[ "${{ matrix.target }}" == *windows* ]] && exe=vue-ts-mapper-rs.exe
+          cp "target/${{ matrix.target }}/release/$exe" "stage/${{ matrix.platform }}/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.platform }}
+          path: stage
+
+  package:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: npm/bin
+          merge-multiple: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pack
+        run: |
+          chmod +x npm/bin/*/vue-ts-mapper-rs 2>/dev/null || true
+          cp -R types README.md LICENSE npm/
+          cd npm
+          npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+          npm pack
+      - name: Smoke test
+        run: |
+          mkdir smoke && cd smoke
+          npm init -y >/dev/null
+          npm i ../npm/chatium-vue-ts-mapper-rs-*.tgz typescript@7.1.0-dev.20261003.1
+          mkdir src
+          printf '<script setup lang="ts">\nconst n: number = "x"\n</script>\n' > src/A.vue
+          printf '{"compilerOptions":{"strict":true,"noEmit":true,"types":[]},"include":["src"],"contentMappers":[{"package":"@chatium/vue-ts-mapper-rs","extensions":[".vue"]}]}' > tsconfig.json
+          out=$(npx tsc --runExternalCode -p tsconfig.json || true)
+          echo "$out"
+          echo "$out" | grep -q "src/A.vue(2,7): error TS2322"
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" npm/chatium-vue-ts-mapper-rs-*.tgz \
+            --title "$GITHUB_REF_NAME" --generate-notes
