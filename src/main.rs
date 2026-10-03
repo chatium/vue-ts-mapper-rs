@@ -42,7 +42,8 @@ fn main() {
         .map(|_| {
             let rx = rx.clone();
             let state = state.clone();
-            std::thread::spawn(move || {
+            // deep templates recurse deeply, and a stack overflow aborts instead of unwinding
+            std::thread::Builder::new().stack_size(256 << 20).spawn(move || {
                 loop {
                     let message = match rx.lock().unwrap().recv() {
                         Ok(m) => m,
@@ -52,6 +53,7 @@ fn main() {
                     write(&state, &response);
                 }
             })
+            .unwrap()
         })
         .collect();
 

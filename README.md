@@ -96,12 +96,14 @@ laptop, the Node mapper against this one:
 
 | SFCs | `.ts` files | `@vue/content-mapper` | vue-ts-mapper-rs |
 | ---: | ---: | --- | --- |
-| 3 571 | 4 694 | 24.7 s, 8.9 GB | 17.3 s, 6.4 GB |
-| 2 901 | 3 283 | 11.8 s, 7.5 GB | 6.4 s, 3.9 GB |
-| 2 725 | 3 966 | 17.4 s, 10.1 GB | 9.4 s, 5.6 GB |
-| 1 931 | 4 790 | 21.8 s, 8.9 GB | 13.7 s, 6.9 GB |
-| 810 | 2 003 | 6.3 s, 4.1 GB | 3.6 s, 2.4 GB |
-| 680 | 1 211 | 3.6 s, 2.4 GB | 1.9 s, 1.1 GB |
+| 3 571 | 4 694 | 24.7 s, 8.9 GB | 10.1 s, 6.4 GB |
+| 2 901 | 3 283 | 11.8 s, 7.5 GB | 5.6 s, 4.0 GB |
+| 2 725 | 3 966 | 17.4 s, 10.1 GB | 8.1 s, 5.5 GB |
+| 1 931 | 4 790 | 21.8 s, 8.9 GB | 12.2 s, 6.9 GB |
+| 903 | 1 813 | 5.9 s, 3.9 GB | 3.7 s, 2.3 GB |
+| 810 | 2 003 | 6.3 s, 4.1 GB | 3.4 s, 2.5 GB |
+| 680 | 1 211 | 3.6 s, 2.4 GB | 1.7 s, 1.2 GB |
+| 513 | 1 190 | 4.7 s, 2.9 GB | 2.3 s, 1.4 GB |
 
 (peak memory of the whole process tree). The mapper process itself peaks at 100–300 MB, where
 the Node one takes 1–5 GB; the rest is the compiler. On its own, the mapper transforms about
