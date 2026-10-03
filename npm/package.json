@@ -1,6 +1,6 @@
 {
 	"name": "@chatium/vue-ts-mapper-rs",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "TypeScript 7 content mapper for Vue single-file components, written in Rust",
 	"license": "MIT",
 	"repository": {

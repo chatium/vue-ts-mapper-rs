@@ -3,7 +3,7 @@ fn main() {
     let list = std::fs::read_to_string(std::env::args().nth(1).expect("file list")).unwrap();
     let threads: usize = std::env::args().nth(2).map_or(1, |t| t.parse().unwrap());
     let files: Vec<(String, String)> =
-        list.lines().filter(|l| !l.is_empty()).map(|f| (f.to_string(), std::fs::read_to_string(f).unwrap())).collect();
+        list.lines().filter(|l| !l.is_empty()).filter_map(|f| Some((f.to_string(), std::fs::read_to_string(f).ok()?))).collect();
     let bytes: usize = files.iter().map(|f| f.1.len()).sum();
     let options = vue_ts_mapper::options::default_options(99.0, "vue", "/types");
     let next = std::sync::atomic::AtomicUsize::new(0);
@@ -12,7 +12,11 @@ fn main() {
         for _ in 0..threads {
             s.spawn(|| {
                 while let Some((f, c)) = files.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) {
-                    let _ = vue_ts_mapper::transform(f, c, &options, true);
+                    match std::panic::catch_unwind(|| vue_ts_mapper::transform(f, c, &options, true)) {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(e)) => eprintln!("error: {f}: {e}"),
+                        Err(_) => eprintln!("panic: {f}"),
+                    }
                 }
             });
         }

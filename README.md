@@ -17,7 +17,7 @@ arm64, are in the package):
 
 ```sh
 npm i -D typescript@7.1.0-dev.20261003.1 \
-  https://github.com/chatium/vue-ts-mapper-rs/releases/download/v0.1.0/chatium-vue-ts-mapper-rs-0.1.0.tgz
+  https://github.com/chatium/vue-ts-mapper-rs/releases/download/v0.1.1/chatium-vue-ts-mapper-rs-0.1.1.tgz
 ```
 
 Register it in `tsconfig.json`:
@@ -52,7 +52,7 @@ tsconfig's location). Nothing needs installing in the project:
 ```sh
 npm exec --yes \
   --package=typescript@7.1.0-dev.20261003.1 \
-  --package=https://github.com/chatium/vue-ts-mapper-rs/releases/download/v0.1.0/chatium-vue-ts-mapper-rs-0.1.0.tgz \
+  --package=https://github.com/chatium/vue-ts-mapper-rs/releases/download/v0.1.1/chatium-vue-ts-mapper-rs-0.1.1.tgz \
   -- vue-tsgo --noEmit
 ```
 
