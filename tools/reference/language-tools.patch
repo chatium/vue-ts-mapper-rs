@@ -1,0 +1,124 @@
+diff --git a/packages/language-core/lib/codegen/script/index.ts b/packages/language-core/lib/codegen/script/index.ts
+index 62706921..7e8c0ca1 100644
+--- a/packages/language-core/lib/codegen/script/index.ts
++++ b/packages/language-core/lib/codegen/script/index.ts
+@@ -4,7 +4,7 @@ import type { ScriptSetupRanges } from '../../parsers/scriptSetupRanges';
+ import type { Code, IRBlock, IRScript, IRScriptSetup, VueCompilerOptions } from '../../types';
+ import { codeFeatures } from '../codeFeatures';
+ import { names } from '../names';
+-import { asType, endOfLine, generateSfcBlockSection, newLine } from '../utils';
++import { asType, endOfLine, generateBlockTerminator, generateSfcBlockSection, newLine } from '../utils';
+ import { Boundary } from '../utils/boundary';
+ import { createScriptCodegenContext, type ScriptCodegenContext } from './context';
+ import { generateGeneric, generateMacros, generateScriptSetupImports, generateSetupFunction } from './scriptSetup';
+@@ -100,6 +100,7 @@ function* generateWorker(
+ 		}
+ 		else {
+ 			yield* generateSfcBlockSection(script, 0, script.content.length, codeFeatures.all);
++			yield* generateBlockTerminator(script);
+ 			yield* generateSyntheticDefaultExport(exportExpression);
+ 		}
+ 
+@@ -185,6 +186,7 @@ function* generateWorker(
+ 		}
+ 		else {
+ 			yield* generateSfcBlockSection(script, 0, script.content.length, codeFeatures.all);
++			yield* generateBlockTerminator(script);
+ 			yield* generateExportDeclareEqual(script, names.export);
+ 			yield `(await import('${vueCompilerOptions.lib}')).defineComponent({})${endOfLine}`;
+ 			yield* generateTemplate(options, names.export);
+@@ -256,6 +258,7 @@ function* generateScriptWithExportDefault(
+ 	}
+ 	yield endOfLine;
+ 	yield* generateSfcBlockSection(script, exportDefault.end, script.content.length, codeFeatures.all);
++	yield* generateBlockTerminator(script);
+ }
+ 
+ function* generateGlobalTypesReference(
+diff --git a/packages/language-core/lib/codegen/script/scriptSetup.ts b/packages/language-core/lib/codegen/script/scriptSetup.ts
+index 097a71cb..954954e9 100644
+--- a/packages/language-core/lib/codegen/script/scriptSetup.ts
++++ b/packages/language-core/lib/codegen/script/scriptSetup.ts
+@@ -6,6 +6,7 @@ import { names } from '../names';
+ import {
+ 	asType,
+ 	endOfLine,
++	generateBlockTerminator,
+ 	generateSfcBlockSection,
+ 	generateTypeAlias,
+ 	generateTypedVar,
+@@ -334,6 +335,7 @@ export function* generateSetupFunction(
+ 		transforms,
+ 		(start, end) => generateSfcBlockSection(scriptSetup, start, end, codeFeatures.all),
+ 	);
++	yield* generateBlockTerminator(scriptSetup);
+ 	yield* generateModels(options, scriptSetup, scriptSetupRanges);
+ 	yield* generatePublicProps(options, ctx, scriptSetup, scriptSetupRanges);
+ 	yield* body;
+diff --git a/packages/language-core/lib/codegen/template/context.ts b/packages/language-core/lib/codegen/template/context.ts
+index 40771d6b..2447e320 100644
+--- a/packages/language-core/lib/codegen/template/context.ts
++++ b/packages/language-core/lib/codegen/template/context.ts
+@@ -340,7 +340,7 @@ export function createTemplateCodegenContext() {
+ 		return name;
+ 	}
+ 
+-	function* generateHoistVariables() {
++	function* generateHoistVariables(scriptLang: string) {
+ 		// trick to avoid TS 4081 (#5186)
+ 		if (hoistVars.size) {
+ 			yield `var `;
+@@ -350,7 +350,7 @@ export function createTemplateCodegenContext() {
+ 					yield `, `;
+ 				}
+ 				first = false;
+-				yield `${hoistVar} = ${originalVar}!`;
++				yield `${hoistVar} = ${originalVar}${scriptLang === 'ts' || scriptLang === 'tsx' ? '!' : ''}`;
+ 			}
+ 			yield endOfLine;
+ 		}
+diff --git a/packages/language-core/lib/codegen/template/element.ts b/packages/language-core/lib/codegen/template/element.ts
+index a7aa9f78..c66cc4ff 100644
+--- a/packages/language-core/lib/codegen/template/element.ts
++++ b/packages/language-core/lib/codegen/template/element.ts
+@@ -191,7 +191,7 @@ export function* generateComponent(
+ 	yield `// @ts-ignore${newLine}`;
+ 	yield `const ${functionalVar} = ${names.asFunctionalComponent0}(${componentVar}, new ${componentVar}({${newLine}`;
+ 	yield `// @ts-ignore${newLine}`;
+-	yield propsStr.replace(/\n/g, ' ');
++	yield propsStr.replace(/\n/g, `\n// @ts-ignore\n`);
+ 	yield `}))${endOfLine}`;
+ 
+ 	yield* generateExportDeclareEqual(options.template, vnodeVar, node.loc.start.offset, node.loc.end.offset);
+diff --git a/packages/language-core/lib/codegen/template/index.ts b/packages/language-core/lib/codegen/template/index.ts
+index f5153da5..60840244 100644
+--- a/packages/language-core/lib/codegen/template/index.ts
++++ b/packages/language-core/lib/codegen/template/index.ts
+@@ -81,7 +81,7 @@ function* generateWorker(
+ 	if (template.ast) {
+ 		yield* generateTemplateChild(options, ctx, template.ast);
+ 	}
+-	yield* ctx.generateHoistVariables();
++	yield* ctx.generateHoistVariables(options.scriptLang);
+ 	yield* generateSlotsType(options, ctx);
+ 	yield* generateInheritedAttrsType(options, ctx);
+ 	yield* generateTemplateRefsType(options, ctx);
+diff --git a/packages/language-core/lib/codegen/utils/index.ts b/packages/language-core/lib/codegen/utils/index.ts
+index 1d27e80c..9d100134 100644
+--- a/packages/language-core/lib/codegen/utils/index.ts
++++ b/packages/language-core/lib/codegen/utils/index.ts
+@@ -114,6 +114,14 @@ export function* generateSfcBlockSection(
+ 	}
+ }
+ 
++// The block content is followed by generated statements; without a trailing newline its last
++// statement would run into them (`foo()const __VLS_ctx = ...`).
++export function* generateBlockTerminator(block: IRBlock): Generator<Code> {
++	if (!block.content.endsWith('\n')) {
++		yield `${newLine};${newLine}`;
++	}
++}
++
+ export function* forEachNode(ts: typeof import('typescript'), node: ts.Node): Generator<ts.Node> {
+ 	const children: ts.Node[] = [];
+ 	ts.forEachChild(node, child => {

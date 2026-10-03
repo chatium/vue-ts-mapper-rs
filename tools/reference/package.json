@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "dependencies": {
+    "typescript": "6.0.3",
+    "@vue/language-core": "file:./packs/vue-language-core-3.3.11.tgz",
+    "@vue/content-mapper": "file:./packs/vue-content-mapper-3.3.9.tgz"
+  },
+  "overrides": {
+    "@vue/language-core": "$@vue/language-core",
+    "@vue/compiler-dom": "3.5.38",
+    "@vue/compiler-core": "3.5.38",
+    "@vue/shared": "3.5.38"
+  }
+}
