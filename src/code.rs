@@ -1,6 +1,7 @@
 //! The codegen's output unit, a port of Volar's `Segment<VueCodeInformation>`: either generated text,
 //! or text copied from (and mapped to) an offset in one of the SFC blocks.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 
 /// The block a mapped segment points into (`IRBlock.name` in language-core). Offsets are relative to
@@ -220,7 +221,8 @@ pub mod features {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Code {
-    Text(String),
+    /// generated text; mostly static pieces, which need no allocation
+    Text(Cow<'static, str>),
     Seg { text: String, src: Src, offset: u32, feat: Feat },
 }
 
@@ -257,19 +259,3 @@ pub fn next_id() -> u32 {
     })
 }
 
-/// Push helpers for a `Codes` buffer.
-pub trait Out {
-    fn t(&mut self, s: impl Into<String>);
-    fn seg(&mut self, text: impl Into<String>, src: Src, offset: usize, feat: Feat);
-}
-
-impl Out for Codes {
-    #[inline]
-    fn t(&mut self, s: impl Into<String>) {
-        self.push(Code::Text(s.into()));
-    }
-    #[inline]
-    fn seg(&mut self, text: impl Into<String>, src: Src, offset: usize, feat: Feat) {
-        self.push(Code::Seg { text: text.into(), src, offset: offset as u32, feat });
-    }
-}

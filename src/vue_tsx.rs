@@ -189,6 +189,7 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
     let style_blocks: Vec<StyleBlock> =
         sfc.styles.iter().zip(&style_infos).map(|(block, info)| StyleBlock { block, info }).collect();
 
+    let expr_cache = Default::default();
     let template_pass = |dot_value_bindings: &IndexSet<String>| -> Option<TemplateResult> {
         let tb = template_block.filter(|_| !vue.skip_template_codegen)?;
         let reassert_bindings: IndexSet<String> =
@@ -211,6 +212,7 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
             props_assign_name,
             slots_assign_name,
             inherit_attrs,
+            expr_cache: &expr_cache,
         }))
     };
     let style_pass = |dot_value_bindings: &IndexSet<String>| -> Option<StyleResult> {
@@ -228,6 +230,7 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
                 dot_value_bindings,
                 lib: &vue.lib,
                 script_lang: lang,
+                cache: &expr_cache,
             },
         }))
     };
@@ -315,8 +318,8 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
         }
     };
     let volar = mappings::build(&codes, block_start);
-    let generated: Vec<u16> = text.encode_utf16().collect();
-    let original: Vec<u16> = content.encode_utf16().collect();
+    let generated = Text::new(&text);
+    let original = Text::new(content);
     let spans = mappings::to_span_mappings(&volar, &generated, &original, language_features);
     let directives = mappings::to_diagnostic_directives(&volar)?;
     let directives = mappings::with_synthesized_ignores(generated.len() as i64, &spans, &directives);

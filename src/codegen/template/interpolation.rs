@@ -1,5 +1,9 @@
 //! `codegen/template/interpolation.ts`
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use indexmap::IndexSet;
 
 use crate::code::{Feat, Shorthand, Src, features};
@@ -20,7 +24,12 @@ pub struct InterpOpts<'a> {
     pub dot_value_bindings: &'a IndexSet<String>,
     pub lib: &'a str,
     pub script_lang: &'a str,
+    pub cache: &'a ExprCache,
 }
+
+/// Parsed interpolation texts of one SFC, shared by its codegen passes (the reference caches
+/// them per block too).
+pub type ExprCache = RefCell<HashMap<String, Rc<(ts_ast::Parsed, Vec<u16>)>>>;
 
 struct Access {
     name: String,
@@ -46,11 +55,11 @@ pub fn interpolation(
     in_narrowing: bool,
 ) {
     if !prefix.is_empty() {
-        out.t(prefix);
+        out.t(prefix.to_string());
     }
     let text = Text::new(code);
     let mut prev_end = 0usize;
-    for a in for_each_identifiers(ctx, code, prefix, suffix, in_narrowing) {
+    for a in for_each_identifiers(o.cache, ctx, code, prefix, suffix, in_narrowing) {
         let identifier_data = if a.is_shorthand { Feat { shorthand: Shorthand::Js, ..data } } else { data };
         let name_len = len16(&a.name);
         if a.is_shorthand {
@@ -102,7 +111,7 @@ pub fn interpolation(
         non_identifier_code(out, text.slice_from(prev_end), src, start + prev_end, data, prev_end > 0);
     }
     if !suffix.is_empty() {
-        out.t(suffix);
+        out.t(suffix.to_string());
     }
 }
 
@@ -123,7 +132,7 @@ fn non_identifier_code(out: &mut Out, code: &str, src: Src, offset: usize, data:
     }
 }
 
-fn for_each_identifiers(ctx: &mut Ctx, code: &str, prefix: &str, suffix: &str, in_narrowing: bool) -> Vec<Access> {
+fn for_each_identifiers(cache: &ExprCache, ctx: &mut Ctx, code: &str, prefix: &str, suffix: &str, in_narrowing: bool) -> Vec<Access> {
     if is_identifier(code) && !should_identifier_skipped(&ctx.scopes, code) {
         return vec![Access {
             name: code.to_string(),
@@ -136,10 +145,14 @@ fn for_each_identifiers(ctx: &mut Ctx, code: &str, prefix: &str, suffix: &str, i
     }
     let scope = ctx.scope();
     let full = format!("{prefix}{code}{suffix}");
-    let parsed = ts_ast::parse_as(&full, false, false);
-    let units: Vec<u16> = full.encode_utf16().collect();
+    let cached = cache.borrow().get(&full).cloned();
+    let parsed = cached.unwrap_or_else(|| {
+        let parsed = Rc::new((ts_ast::parse_as(&full, false, false), full.encode_utf16().collect()));
+        cache.borrow_mut().insert(full, parsed.clone());
+        parsed
+    });
     let items = {
-        let mut w = Walker { p: &parsed, units: &units, scopes: &mut ctx.scopes, items: Vec::new() };
+        let mut w = Walker { p: &parsed.0, units: &parsed.1, scopes: &mut ctx.scopes, items: Vec::new() };
         w.program(scope, in_narrowing);
         w.items
     };

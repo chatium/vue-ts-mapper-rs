@@ -791,12 +791,12 @@ pub fn event_arg(out: &mut Out, name: &str, start: usize, directive: &str, feat:
     let name = if directive.is_empty() { name.to_string() } else { capitalize(name) };
     let b = Boundary::start(out, Src::Template, start, start + len16(&name), feat);
     if is_identifier(&camelize(&name)) {
-        out.t(directive);
+        out.t(directive.to_string());
         camelized(out, &name, Src::Template, start, b.feat);
         // the reference leaves this boundary open
     } else {
         out.t("'");
-        out.t(directive);
+        out.t(directive.to_string());
         camelized(out, &name, Src::Template, start, b.feat);
         out.t("'");
         b.end(out);
@@ -1022,7 +1022,7 @@ pub fn modifiers(
         let first = off(&a.exp(d.modifiers[0]).loc.start).wrapping_sub(1);
         let last = off(&a.exp(*d.modifiers.last().unwrap()).loc.end);
         let b = Boundary::start(out, Src::Template, first, last, features::VERIFICATION);
-        out.t(property_name);
+        out.t(property_name.to_string());
         b.end(out);
         out.t(": ");
     }
@@ -1098,7 +1098,7 @@ pub fn slot_outlet(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: Node
             };
             let loc = a.node(np).loc();
             let b = Boundary::start(out, Src::Template, off(&loc.start), off(&loc.end), features::VERIFICATION);
-            out.t(slots_name);
+            out.t(slots_name.to_string());
             match codes {
                 Codes::Access(content, offset) => {
                     property_access(o, ctx, out, &content, offset, features::NAVIGATION_AND_VERIFICATION)

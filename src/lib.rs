@@ -7,6 +7,7 @@ pub mod mappings;
 pub mod names;
 pub mod options;
 pub mod paths;
+pub mod project;
 pub mod sfc;
 pub mod shared;
 pub mod template;

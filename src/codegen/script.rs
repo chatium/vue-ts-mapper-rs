@@ -74,7 +74,7 @@ fn worker(o: &ScriptOptions, c: &mut Ctx, out: &mut Out) {
         out.t("'");
         let t = Text::new(&src);
         out.seg(t.slice(0, len16(text)), Src::Main, offset, b.feat);
-        out.t(t.slice_from(len16(text)));
+        out.t(t.slice_from(len16(text)).to_string());
         out.t("'");
         b.end(out);
         out.t(EOL);
@@ -172,7 +172,7 @@ fn script_with_export_default(
     }
 
     sfc_block_section(out, script, 0, expression.start, features::ALL);
-    out.t(export_expression);
+    out.t(export_expression.to_string());
     sfc_block_section(out, script, expression.end, ed.end, features::ALL);
     out.t(EOL);
     if let Some(t) = template_gen {
@@ -180,9 +180,9 @@ fn script_with_export_default(
     }
     export_declare_equal(out, script.block.name, var_name, 0, script.text.len());
     if !wrap_left.is_empty() && !wrap_right.is_empty() {
-        out.t(wrap_left);
+        out.t(wrap_left.to_string());
         sfc_block_section(out, script, expression.start, expression.end, features::ALL);
-        out.t(wrap_right);
+        out.t(wrap_right.to_string());
     } else {
         sfc_block_section(out, script, expression.start, expression.end, features::ALL);
     }
@@ -213,7 +213,7 @@ fn global_types_reference(out: &mut Out, vue: &VueOptions, file_name: &str) {
 pub fn export_declare_equal(out: &mut Out, src: Src, name: &str, start: usize, end: usize) {
     out.t("const ");
     let b = Boundary::start(out, src, start, end, features::VERIFICATION);
-    out.t(name);
+    out.t(name.to_string());
     b.end(out);
     out.t(" = ");
 }
@@ -688,16 +688,16 @@ fn model_prop(o: &ScriptOptions, setup: &ScriptBlock, dm: &DefineModel, prop_nam
     // In JS the alias body lives inside a JSDoc comment; user comments could contain `*/` and
     // terminate it early, so they are dropped.
     if let (Some(c), true) = (dm.comments, is_ts_lang(o.script_lang)) {
-        out.t(setup.text.slice(c.start, c.end));
+        out.t(setup.text.slice(c.start, c.end).to_string());
         out.t(NL);
     }
     if let Some(n) = dm.name {
         camelized(&mut out, setup.text.slice(n.start, n.end), setup.block.name, n.start, features::NAVIGATION);
     } else {
-        out.t(prop_name);
+        out.t(prop_name.to_string());
     }
     out.t(if dm.required { ": " } else { "?: " });
-    out.t(model_type);
+    out.t(model_type.to_string());
     out.t(EOL);
     if let Some(mt) = dm.modifier_type {
         let modifier_name = format!("{}Modifiers", if prop_name == "modelValue" { "model" } else { prop_name });
@@ -736,7 +736,7 @@ fn component(o: &ScriptOptions, c: &mut Ctx, out: &mut Out, setup: &ScriptBlock,
 }
 
 fn text_codes(v: Vec<String>) -> Vec<Code> {
-    v.into_iter().map(Code::Text).collect()
+    v.into_iter().map(|s| Code::Text(s.into())).collect()
 }
 
 fn emits_option(o: &ScriptOptions, ssr: &ScriptSetupRanges) -> Vec<Code> {

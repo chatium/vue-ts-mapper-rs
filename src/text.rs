@@ -51,7 +51,8 @@ impl<'a> Text<'a> {
     pub fn utf16(&self, b: usize) -> usize {
         match &self.byte_of {
             None => b,
-            Some(_) => len16(&self.s[..b]),
+            // the first unit at or past `b`; the table is sorted
+            Some(t) => t.partition_point(|&x| (x as usize) < b),
         }
     }
 
@@ -98,7 +99,9 @@ impl<'a> Text<'a> {
 
 /// `str.length` of a Rust string.
 pub fn len16(s: &str) -> usize {
-    if s.is_ascii() { s.len() } else { s.chars().map(char::len_utf16).sum() }
+    // every char is one unit except the 4-byte ones, which are two: count the bytes that start a
+    // char, plus the bytes that start a 4-byte char
+    s.as_bytes().iter().map(|&b| ((b & 0xc0) != 0x80) as usize + (b >= 0xf0) as usize).sum()
 }
 
 /// JS `String.prototype.trim()` whitespace (`\s` plus the line terminators).
@@ -139,5 +142,19 @@ mod tests {
         assert_eq!(t.utf16(t.s.len()), 5);
         assert_eq!(t.index_of("b", 0), Some(4));
         assert_eq!(len16("😀"), 2);
+    }
+
+    #[test]
+    fn offsets() {
+        let s = "aй😀b";
+        assert_eq!(len16(s), 5);
+        let t = Text::new(s);
+        assert_eq!(t.len(), 5);
+        assert_eq!(t.utf16(0), 0);
+        assert_eq!(t.utf16(1), 1);
+        assert_eq!(t.utf16(3), 2);
+        assert_eq!(t.utf16(7), 4);
+        assert_eq!(t.index_of("b", 0), Some(4));
+        assert_eq!(t.slice(1, 2), "й");
     }
 }

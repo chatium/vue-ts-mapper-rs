@@ -2,4 +2,3 @@
 node_modules
 /tools/reference/work
 /tools/reference/packs
-/tests/fixtures/*.jsonl

@@ -39,6 +39,7 @@ pub struct TemplateOptions<'a> {
     pub props_assign_name: Option<&'a str>,
     pub slots_assign_name: Option<&'a str>,
     pub inherit_attrs: bool,
+    pub expr_cache: &'a interpolation::ExprCache,
 }
 
 impl<'a> TemplateOptions<'a> {
@@ -51,6 +52,7 @@ impl<'a> TemplateOptions<'a> {
             dot_value_bindings: self.dot_value_bindings,
             lib: &self.vue.lib,
             script_lang: self.script_lang,
+            cache: self.expr_cache,
         }
     }
 
@@ -940,9 +942,14 @@ pub fn element_tag_offsets(o: &TemplateOptions, node: NodeId) -> (usize, Option<
     let start = el.loc.start.offset as usize;
     let first = o.text.index_of(&el.tag, start).unwrap_or(usize::MAX);
     if !el.is_self_closing && o.template.lang == "html" {
-        let src = Text::new(&el.loc.source);
-        if let Some(last) = src.last_index_of(&el.tag) {
-            let end_tag = start + last;
+        // `node.loc.source.lastIndexOf(node.tag)`; the source is the template's text from `start`
+        if let Some(last) = el.loc.source.rfind(el.tag.as_str()) {
+            let abs = o.text.byte(start) + last;
+            let end_tag = if o.text.s.is_char_boundary(abs) && abs <= o.text.s.len() {
+                o.text.utf16(abs)
+            } else {
+                start + crate::text::len16(&el.loc.source[..last])
+            };
             if first == usize::MAX || end_tag > first {
                 return (first, Some(end_tag));
             }

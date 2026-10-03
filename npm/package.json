@@ -1,0 +1,21 @@
+{
+	"name": "@chatium/vue-ts-mapper-rs",
+	"version": "0.1.0",
+	"description": "TypeScript 7 content mapper for Vue single-file components, written in Rust",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/chatium/vue-ts-mapper-rs.git"
+	},
+	"keywords": ["vue", "typescript", "tsgo", "content-mapper", "type-check"],
+	"files": ["launcher.cjs", "bin", "types", "README.md", "LICENSE"],
+	"typescript": {
+		"contentMapper": {
+			"exec": ["node", "launcher.cjs"],
+			"dynamicConfig": true
+		}
+	},
+	"engines": {
+		"node": ">=18"
+	}
+}

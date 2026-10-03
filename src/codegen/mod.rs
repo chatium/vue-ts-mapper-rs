@@ -46,7 +46,7 @@ impl Out {
     }
 
     #[inline]
-    pub fn t(&mut self, s: impl Into<String>) {
+    pub fn t(&mut self, s: impl Into<std::borrow::Cow<'static, str>>) {
         self.codes.push(Code::Text(s.into()));
     }
 

@@ -1,0 +1,7 @@
+<script setup lang="ts" generic>
+defineProps<{ foo: number }>();
+defineEmits<{ (e: 'bar', data: number): void }>();
+defineExpose({ baz: {} as number });
+defineSlots<{ default?: (props: { foo: number }) => any }>();
+defineModel<string>('title', { required: true });
+</script>

@@ -3,7 +3,8 @@ name = "vue-ts-mapper-rs"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "TypeScript 7 content mapper for Vue SFCs, in Rust"
+description = "TypeScript 7 content mapper for Vue single-file components, written in Rust"
+repository = "https://github.com/chatium/vue-ts-mapper-rs"
 publish = false
 
 [lib]
@@ -16,7 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 # template/SFC parser: chatium/vue-sfc-swc, a byte-identical port of @vue/compiler-core 3.5.38
-vue-sfc = { path = "../vue-sfc-swc" }
+vue-sfc = { git = "https://github.com/chatium/vue-sfc-swc", rev = "e0814ab8a36026271ba6c7266c77f149ca4c220a" }
 swc_core = { version = "=80.0.0", features = [
   "common",
   "ecma_ast",

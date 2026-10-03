@@ -2,12 +2,12 @@
 //! `getMappingsForCode`) → the content-mapper protocol's span mappings (`toSpanMappings`) and
 //! diagnostic directives (`toDiagnosticDirectives`, `withSynthesizedDiagnosticIgnores`).
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
 
 use crate::code::{Code, Feat, Navigation, Phase, Policy, Semantic, Src};
-use crate::text::len16;
+use crate::text::{Text, len16};
 
 /// A Volar mapping: one or more ranges sharing their data.
 pub struct VolarMapping {
@@ -134,7 +134,7 @@ struct Candidate {
 }
 
 /// `toSpanMappings(mappings, generatedText, originalText, languageFeatures)`
-pub fn to_span_mappings(mappings: &[VolarMapping], generated: &[u16], original: &[u16], language_features: bool) -> Vec<SpanMapping> {
+pub fn to_span_mappings(mappings: &[VolarMapping], generated: &Text, original: &Text, language_features: bool) -> Vec<SpanMapping> {
     let mut entries: Vec<Entry> = Vec::new();
     for m in mappings {
         for i in 0..m.lengths.len() {
@@ -256,12 +256,10 @@ pub fn to_span_mappings(mappings: &[VolarMapping], generated: &[u16], original: 
         .collect()
 }
 
-/// `text.slice(start, end)` on UTF-16 units.
-fn slice(units: &[u16], start: i64, end: i64) -> &[u16] {
-    let len = units.len() as i64;
-    let s = start.clamp(0, len) as usize;
-    let e = end.clamp(0, len) as usize;
-    if s >= e { &[] } else { &units[s..e] }
+/// `text.slice(start, end)` (UTF-16 offsets).
+fn slice<'t>(text: &Text<'t>, start: i64, end: i64) -> &'t str {
+    let len = text.len() as i64;
+    text.slice(start.clamp(0, len) as usize, end.clamp(0, len) as usize)
 }
 
 /// The reference's treap answers "does any stored interval overlap `[start, end)`"; the stored
@@ -269,7 +267,8 @@ fn slice(units: &[u16], start: i64, end: i64) -> &[u16] {
 /// and the last one starting before `end` decides.
 struct IntervalSet {
     allow_exact_duplicates: bool,
-    set: BTreeSet<(i64, i64)>,
+    /// sorted by `(start, end)`
+    set: Vec<(i64, i64)>,
     /// an inverted interval (a combined span whose original range runs backwards) voids the
     /// ordering argument; queries then scan
     inverted: bool,
@@ -277,28 +276,28 @@ struct IntervalSet {
 
 impl IntervalSet {
     fn new(allow_exact_duplicates: bool) -> Self {
-        IntervalSet { allow_exact_duplicates, set: BTreeSet::new(), inverted: false }
+        IntervalSet { allow_exact_duplicates, set: Vec::new(), inverted: false }
     }
 
     fn can_add(&self, start: i64, end: i64) -> bool {
-        if self.allow_exact_duplicates && self.set.contains(&(start, end)) {
+        if self.allow_exact_duplicates && self.set.binary_search(&(start, end)).is_ok() {
             return true;
         }
-        !self.has_overlap(start, end)
-    }
-
-    fn has_overlap(&self, start: i64, end: i64) -> bool {
         // `rangesOverlap(start, end, a, b)`: `start < b && a < end`
-        let mut before = self.set.range(..(end, i64::MIN));
+        let before = &self.set[..self.set.partition_point(|&(a, _)| a < end)];
         if self.inverted {
-            return before.any(|&(a, b)| start < b && a < end);
+            return !before.iter().any(|&(a, b)| start < b && a < end);
         }
-        before.next_back().is_some_and(|&(_, b)| start < b)
+        !before.last().is_some_and(|&(_, b)| start < b)
     }
 
     fn add(&mut self, start: i64, end: i64) {
         self.inverted |= end < start;
-        self.set.insert((start, end));
+        let i = self.set.partition_point(|&x| x < (start, end));
+        if self.allow_exact_duplicates && self.set.get(i) == Some(&(start, end)) {
+            return;
+        }
+        self.set.insert(i, (start, end));
     }
 }
 

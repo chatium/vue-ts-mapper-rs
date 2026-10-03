@@ -1340,6 +1340,7 @@ checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 [[package]]
 name = "vue-sfc"
 version = "0.1.0"
+source = "git+https://github.com/chatium/vue-sfc-swc?rev=e0814ab8a36026271ba6c7266c77f149ca4c220a#e0814ab8a36026271ba6c7266c77f149ca4c220a"
 dependencies = [
  "base64",
  "grass",
