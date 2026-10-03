@@ -17,11 +17,13 @@ use crate::ts_ast;
 
 /// The options `generateInterpolation` reads, shared by the template and style codegen.
 pub struct InterpOpts<'a> {
-    pub destructured_props: &'a IndexSet<String>,
+    pub setup_consts: &'a IndexSet<String>,
     pub imported_components: &'a IndexSet<String>,
     pub setup_refs: &'a IndexSet<String>,
     pub setup_bindings: &'a IndexSet<String>,
     pub dot_value_bindings: &'a IndexSet<String>,
+    /// imports and `let` / `var` bindings among them (`BindingFlag.Variable`)
+    pub reassert_bindings: &'a IndexSet<String>,
     pub lib: &'a str,
     pub script_lang: &'a str,
     pub cache: &'a ExprCache,
@@ -38,6 +40,8 @@ struct Access {
     is_narrowing: bool,
     in_type_query: bool,
     is_new_operand: bool,
+    in_function: bool,
+    is_write: bool,
 }
 
 /// `generateInterpolation(options, ctx, block, data, code, start, prefix, suffix, inNarrowing)`
@@ -71,17 +75,25 @@ pub fn interpolation(
 
         let name = &a.name;
         let at = start + a.offset;
-        if o.destructured_props.contains(name) || o.imported_components.contains(name) {
+        if o.setup_consts.contains(name) || o.imported_components.contains(name) {
             out.seg(name.clone(), src, at, identifier_data);
         } else if o.setup_refs.contains(name) {
-            out.seg(name.clone(), src, at, data);
-            out.seg(".value", src, at, features::VERIFICATION);
+            out.seg(name.clone(), src, at, identifier_data);
+            dot_value(out, src, at, at + name_len);
         } else if o.setup_bindings.contains(name) {
             ctx.access_variable(src, name, Some(at), a.in_type_query || a.is_narrowing);
-            if a.in_type_query || o.dot_value_bindings.contains(name) {
+            // inside a function written in the expression, the `.value` assertion does not reach
+            // imports and `let` / `var` bindings: read those like any other binding (a write needs
+            // an assignable reference, so it keeps `.value`)
+            let with_dot_value = o.dot_value_bindings.contains(name)
+                && !(a.in_function && !a.is_write && o.reassert_bindings.contains(name));
+            if a.in_type_query || with_dot_value {
                 out.seg(name.clone(), src, at, identifier_data);
-                out.seg(".value", src, at, features::VERIFICATION);
+                dot_value(out, src, at, at + name_len);
             } else {
+                // the wrapper maps to the identifier, so that diagnostics on the whole access
+                // (`… is possibly 'null'`) are reported, as vue-tsc reports them on `__VLS_ctx.name`
+                let b = Boundary::start(out, src, at, at + name_len, features::VERIFICATION);
                 if a.is_new_operand {
                     out.t("(");
                 }
@@ -91,6 +103,7 @@ pub fn interpolation(
                 if a.is_new_operand {
                     out.t(")");
                 }
+                b.end(out);
             }
         } else {
             // #1205, #1264
@@ -141,6 +154,8 @@ fn for_each_identifiers(cache: &ExprCache, ctx: &mut Ctx, code: &str, prefix: &s
             is_narrowing: in_narrowing,
             in_type_query: false,
             is_new_operand: false,
+            in_function: false,
+            is_write: false,
         }];
     }
     let scope = ctx.scope();
@@ -152,7 +167,7 @@ fn for_each_identifiers(cache: &ExprCache, ctx: &mut Ctx, code: &str, prefix: &s
         parsed
     });
     let items = {
-        let mut w = Walker { p: &parsed.0, units: &parsed.1, scopes: &mut ctx.scopes, items: Vec::new() };
+        let mut w = Walker { p: &parsed.0, units: &parsed.1, scopes: &mut ctx.scopes, items: Vec::new(), function_depth: 0 };
         w.program(scope, in_narrowing);
         w.items
     };
@@ -168,6 +183,16 @@ fn for_each_identifiers(cache: &ExprCache, ctx: &mut Ctx, code: &str, prefix: &s
             is_narrowing: i.is_narrowing,
             in_type_query: i.in_type_query,
             is_new_operand: i.is_new_operand,
+            in_function: i.in_function,
+            is_write: i.is_write,
         })
         .collect()
+}
+
+/// `.value` after a binding, mapped back to the binding (vue-tsc 3.3.12).
+pub fn dot_value(out: &mut Out, src: Src, start: usize, end: usize) {
+    out.t(".");
+    let b = Boundary::start(out, src, start, end, features::VERIFICATION);
+    out.t("value");
+    b.end(out);
 }

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
 
-use crate::code::{Code, Feat, Navigation, Phase, Policy, Semantic, Src};
+use crate::code::{Code, Feat, Navigation, Phase, Policy, Semantic, Src, Verification};
 use crate::text::{Text, len16};
 
 /// A Volar mapping: one or more ranges sharing their data.
@@ -241,7 +241,7 @@ pub fn to_span_mappings(mappings: &[VolarMapping], generated: &Text, original: &
         selected.push(c);
     }
     selected.sort_by_key(|c| c.generated_start);
-    selected
+    let mut spans: Vec<SpanMapping> = selected
         .into_iter()
         .map(|c| {
             (
@@ -253,7 +253,77 @@ pub fn to_span_mappings(mappings: &[VolarMapping], generated: &Text, original: &
                 c.features,
             )
         })
-        .collect()
+        .collect();
+
+    // A verification boundary (`__VLS_ctx.name`, `__VLS_unwrap(name, …)`, `'name'`) whose span
+    // lost to the segments inside it would leave its scaffolding unmapped, and a diagnostic
+    // starting there (`'x' is possibly 'undefined'` on the whole access) suppressed. Volar maps
+    // such a start through the boundary marker, so the uncovered pieces map to the boundary's
+    // original start, or to the end of the segment before them.
+    // (piece, generated length of its boundary group)
+    let mut pieces: Vec<(SpanMapping, i64)> = Vec::new();
+    for group in groups.values() {
+        let first = &entries[group[0]];
+        if !matches!(first.feat.verification, Verification::True | Verification::Expect) {
+            continue;
+        }
+        let last = &entries[*group.last().unwrap()];
+        let (g_start, g_end) = (first.generated_start, last.generated_start + last.generated_length);
+        if g_end <= g_start || g_end > generated.len() as i64 {
+            continue;
+        }
+        let mut cursor = g_start;
+        let mut point = first.original_start;
+        let from = spans.partition_point(|s| s.0 + s.1 <= g_start);
+        for s in &spans[from..] {
+            if s.0 >= g_end {
+                break;
+            }
+            if s.0 > cursor {
+                pieces.push(((cursor, s.0 - cursor, point, 0, ATOM, 0), g_end - g_start));
+            }
+            cursor = cursor.max(s.0 + s.1);
+            point = s.2 + s.3;
+        }
+        if cursor < g_end {
+            pieces.push(((cursor, g_end - cursor, point, 0, ATOM, 0), g_end - g_start));
+        }
+    }
+    if !pieces.is_empty() {
+        // a point strictly inside another span's original range would invalidate the map
+        let mut originals: Vec<(i64, i64)> = spans.iter().map(|s| (s.2, s.2 + s.3)).collect();
+        originals.sort();
+        let inside = |p: i64| {
+            let i = originals.partition_point(|r| r.0 < p);
+            originals[..i].iter().rev().take(4).any(|r| r.0 < p && p < r.1)
+        };
+        pieces.retain(|(p, _)| p.2 >= 0 && p.2 <= original.len() as i64 && !inside(p.2));
+        // nested boundaries can claim the same scaffolding: the innermost one wins (as Volar picks
+        // the closest mapping), outer ones keep what is left
+        pieces.sort_by_key(|(p, group_len)| (*group_len, p.0));
+        let mut claimed: std::collections::BTreeMap<i64, i64> = Default::default();
+        for (p, _) in pieces {
+            let (mut cursor, end) = (p.0, p.0 + p.1);
+            let from = claimed.range(..=cursor).next_back().map_or(cursor, |(&s, _)| s);
+            let taken: Vec<(i64, i64)> = claimed.range(from..end).map(|(&s, &e)| (s, e)).collect();
+            let mut free = Vec::new();
+            for (s, e) in taken {
+                if s > cursor {
+                    free.push((cursor, s));
+                }
+                cursor = cursor.max(e);
+            }
+            if cursor < end {
+                free.push((cursor, end));
+            }
+            for (s, e) in free {
+                claimed.insert(s, e);
+                spans.push((s, e - s, p.2, 0, ATOM, 0));
+            }
+        }
+        spans.sort_by_key(|s| (s.0, s.1));
+    }
+    spans
 }
 
 /// `text.slice(start, end)` (UTF-16 offsets).
@@ -385,6 +455,54 @@ fn merge_ranges(ranges: &[(i64, i64)]) -> Vec<(i64, i64)> {
         }
     }
     out
+}
+
+/// Ignore directives for every virtual position where vue-tsc (Volar) would drop a diagnostic
+/// starting there: positions outside the (end-inclusive) ranges of mappings that verify. TypeScript
+/// applies directives by a diagnostic's start, which is half of Volar's rule; the end is not
+/// checked. `blocked` ranges (expect directives) are left to their own directives.
+pub fn volar_ignores(virtual_length: i64, mappings: &[VolarMapping], blocked: &[DirectiveMapping]) -> Vec<DirectiveMapping> {
+    let mut accepted: Vec<(i64, i64)> = Vec::new();
+    for m in mappings {
+        if !matches!(m.feat.verification, Verification::True | Verification::Expect) {
+            continue;
+        }
+        for i in 0..m.generated.len() {
+            let start = m.generated[i];
+            accepted.push((start, start + m.lengths[i] + 1));
+        }
+    }
+    accepted.sort();
+    let mut result = blocked.to_vec();
+    let mut blocked = blocked.to_vec();
+    blocked.sort_by_key(|d| d.2);
+    let mut gaps: Vec<(i64, i64)> = Vec::new();
+    let mut cursor = 0;
+    for (s, e) in accepted {
+        if s > cursor {
+            gaps.push((cursor, s.min(virtual_length)));
+        }
+        cursor = cursor.max(e);
+    }
+    if cursor < virtual_length {
+        gaps.push((cursor, virtual_length));
+    }
+    for (start, end) in gaps {
+        let mut cursor = start;
+        for d in &blocked {
+            if d.3 <= cursor {
+                continue;
+            }
+            if d.2 >= end {
+                break;
+            }
+            add_ignore(&mut result, cursor, d.2.min(end));
+            cursor = cursor.max(d.3);
+        }
+        add_ignore(&mut result, cursor, end);
+    }
+    result.sort_by_key(|d| d.2);
+    result
 }
 
 /// `withSynthesizedDiagnosticIgnores(virtualLength, mappings, directives)`: generated code that no

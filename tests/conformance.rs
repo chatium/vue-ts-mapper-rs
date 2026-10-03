@@ -1,6 +1,7 @@
-//! The language-tools test-workspace SFCs against the reference mapper's output
-//! (tools/reference/dump.cjs): generated text, span mappings and diagnostic directives must be
-//! identical.
+//! Snapshots of the language-tools test-workspace SFCs: generated text, span mappings and
+//! diagnostic directives. They started as the reference mapper's output (tools/reference/dump.cjs)
+//! and now follow vue-tsc 3.3's checking semantics where the two differ; after an intended change,
+//! `UPDATE_FIXTURES=1 cargo test --test conformance` rewrites them.
 
 use std::path::Path;
 
@@ -16,8 +17,8 @@ fn canonical(text: &str, mappings: &Value, directives: &Value) -> (String, Value
     let mut old_pos = 0i64;
     let mut delta = 0i64;
     while let Some(line) = rest.split_inclusive('\n').next().filter(|l| l.starts_with("/// <reference types=")) {
-        let name = if line.contains("/vue-3.4-shims.d.ts") { "vue-3.4-shims" } else { "template-helpers" };
-        let fixed = format!("/// <reference types=\"<types>/{name}.d.ts\" />\n");
+        let name = line.trim_end().trim_end_matches("\" />").rsplit('/').next().unwrap_or_default();
+        let fixed = format!("/// <reference types=\"<types>/{name}\" />\n");
         old_pos += line.encode_utf16().count() as i64;
         delta += fixed.len() as i64 - line.encode_utf16().count() as i64;
         shifts.push((old_pos, delta));
@@ -61,6 +62,8 @@ fn canonical(text: &str, mappings: &Value, directives: &Value) -> (String, Value
 fn language_tools_workspace() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let options = default_options(99.0, "vue", "/vue-ts-mapper-rs/types");
+    let update = std::env::var_os("UPDATE_FIXTURES").is_some();
+    let mut updated = Vec::new();
     let mut failures = Vec::new();
     let mut total = 0;
     for line in std::fs::read_to_string(dir.join("language-tools.jsonl")).unwrap().lines() {
@@ -76,11 +79,18 @@ fn language_tools_workspace() {
                 continue;
             }
         };
-        let ours = canonical(
-            &res.text,
-            &json!(res.mappings.iter().map(|m| json!([m.0, m.1, m.2, m.3, m.4, m.5])).collect::<Vec<_>>()),
-            &json!(res.directives.iter().map(|d| json!([d.0, d.1, d.2, d.3, d.4])).collect::<Vec<_>>()),
-        );
+        let mappings = json!(res.mappings.iter().map(|m| json!([m.0, m.1, m.2, m.3, m.4, m.5])).collect::<Vec<_>>());
+        let directives = json!(res.directives.iter().map(|d| json!([d.0, d.1, d.2, d.3, d.4])).collect::<Vec<_>>());
+        if update {
+            let mut r = r.clone();
+            r["text"] = json!(res.text);
+            r["extension"] = json!(res.extension);
+            r["mappings"] = mappings;
+            r["directives"] = directives;
+            updated.push(serde_json::to_string(&r).unwrap());
+            continue;
+        }
+        let ours = canonical(&res.text, &mappings, &directives);
         let reference = canonical(r["text"].as_str().unwrap(), &r["mappings"], &r["directives"]);
         if ours.0 != reference.0 || res.extension != r["extension"] {
             failures.push(format!("{file}: text"));
@@ -90,5 +100,37 @@ fn language_tools_workspace() {
             failures.push(format!("{file}: directives"));
         }
     }
+    if update {
+        std::fs::write(dir.join("language-tools.jsonl"), updated.join("\n") + "\n").unwrap();
+    }
     assert!(failures.is_empty(), "{} of {total} differ:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// The virtual code of a valid SFC must parse: TypeScript reports syntax errors in it regardless of
+/// directives, and any syntax error stops the semantic check of the whole program.
+#[test]
+fn virtual_code_parses() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut options = default_options(99.0, "vue", "/vue-ts-mapper-rs/types");
+    options.strict_v_model = true;
+    let mut files = vec![dir.join("syntax/edge-cases.vue").to_string_lossy().into_owned()];
+    for line in std::fs::read_to_string(dir.join("language-tools.jsonl")).unwrap().lines() {
+        let r: Value = serde_json::from_str(line).unwrap();
+        let file = r["file"].as_str().unwrap();
+        // `_failed_` fixtures have syntax errors of their own
+        if !file.contains("_failed_") {
+            files.push(dir.join("language-tools").join(file).to_string_lossy().into_owned());
+        }
+    }
+    let mut failures = Vec::new();
+    for file in &files {
+        let content = std::fs::read_to_string(file).unwrap();
+        let res = vue_ts_mapper::transform(file, &content, &options, true).unwrap();
+        let lang = res.extension.trim_start_matches('.');
+        let parsed = vue_ts_mapper::ts_ast::parse_block(&res.text, lang);
+        if let Some(e) = parsed.errors.first() {
+            failures.push(format!("{file}: syntax error at {}", e.0));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

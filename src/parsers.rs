@@ -127,6 +127,8 @@ pub struct BindingRanges {
     pub components: Vec<Range>,
     /// imports and `let` / `var` bindings: the template codegen re-asserts them per closure
     pub non_flowing_bindings: Vec<Range>,
+    /// function / class / enum declarations (`BindingFlag.Const` in vue-tsc 3.3): read directly
+    pub consts: Vec<Range>,
 }
 
 fn module_items(p: &Parsed) -> &[ModuleItem] {
@@ -187,7 +189,10 @@ pub fn parse_binding_ranges(src: &Src, extensions: &[String]) -> BindingRanges {
                     }
                 }
             }
-            TopDecl::Fn(Some(id)) | TopDecl::Class(Some(id)) | TopDecl::Enum(id) => r.bindings.push(src.range(id)),
+            TopDecl::Fn(Some(id)) | TopDecl::Class(Some(id)) | TopDecl::Enum(id) => {
+                r.bindings.push(src.range(id));
+                r.consts.push(src.range(id));
+            }
             TopDecl::Import(i) => {
                 if i.type_only {
                     continue;

@@ -2,8 +2,10 @@ declare global {
 	const __VLS_directiveBindingRestFields: { instance: null; oldValue: null; value: null; modifiers: any; dir: any };
 
 	type __VLS_BuiltInDirectives = {
-		vHtml: (el: HTMLElement, binding: { value: string }) => void;
-		vText: (el: HTMLElement, binding: { value: string | number }) => void;
+		// values are not checked, as in vue-tsc 3.3 (`null` / `undefined` render nothing, others are
+		// stringified)
+		vHtml: (el: HTMLElement, binding: { value: unknown }) => void;
+		vText: (el: HTMLElement, binding: { value: unknown }) => void;
 		vCloak: (el: HTMLElement) => void;
 		vMemo: (el: HTMLElement, binding: { value: any[] }) => void;
 	};
@@ -130,11 +132,26 @@ declare global {
 		: T extends () => any ? (props: {}, ctx?: any) => ReturnType<T>
 		: T extends (...args: any) => any ? T
 		: __VLS_FunctionalComponent<{}>;
+	// `checkUnknownProps: false`: fallthrough attributes are allowed. vue-tsc drops TS2353 / TS2561 on
+	// props by code, TypeScript 7 cannot, so a function component (a generic SFC's emitted type) gets
+	// them in its props type; higher-order inference keeps its type parameters
+	function __VLS_asFunctionalComponent1<P, A extends any[], R>(
+		t: (props: P, ...args: A) => R,
+		instance?: unknown,
+	): (props: P & Record<string, unknown>, ...args: A) => R;
+	function __VLS_asFunctionalComponent1<T, K>(
+		t: T,
+		instance: K,
+	): T extends new(...args: any) => any ? __VLS_FunctionalComponent<K, Record<string, unknown>>
+		: T extends () => any ? (props: {}, ctx?: any) => ReturnType<T>
+		: T extends (...args: any) => any ? T
+		: __VLS_FunctionalComponent<{}, Record<string, unknown>>;
 	type __VLS_PadArgs<A extends any[]> = A extends [any, ...infer Rest] ? [any, ...__VLS_PadArgs<Rest>] : [];
 	function __VLS_functionalComponentArgsRest<T extends (...args: any) => any>(
 		t: T,
 	): __VLS_PadArgs<Parameters<T> extends [any, ...infer Rest] ? Rest : []>;
 	function __VLS_asFunctionalElement0<T>(tag: T, endTag?: T): (attrs: T) => void;
+	function __VLS_asFunctionalElement1<T>(tag: T, endTag?: T): (attrs: T & Record<string, unknown>) => void;
 	function __VLS_asFunctionalSlot<S>(
 		slot: S,
 	): S extends (...args: any) => any ? (S extends () => infer R ? (props: {}) => R : S)

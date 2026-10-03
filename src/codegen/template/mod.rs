@@ -29,7 +29,7 @@ pub struct TemplateOptions<'a> {
     pub is_vapor: bool,
     pub script_lang: &'a str,
     pub component_name: &'a str,
-    pub destructured_props: &'a IndexSet<String>,
+    pub setup_consts: &'a IndexSet<String>,
     pub imported_components: &'a IndexSet<String>,
     pub setup_refs: &'a IndexSet<String>,
     pub setup_bindings: &'a IndexSet<String>,
@@ -45,11 +45,12 @@ pub struct TemplateOptions<'a> {
 impl<'a> TemplateOptions<'a> {
     pub fn interp(&self) -> InterpOpts<'_> {
         InterpOpts {
-            destructured_props: self.destructured_props,
+            setup_consts: self.setup_consts,
             imported_components: self.imported_components,
             setup_refs: self.setup_refs,
             setup_bindings: self.setup_bindings,
             dot_value_bindings: self.dot_value_bindings,
+            reassert_bindings: self.reassert_bindings,
             lib: &self.vue.lib,
             script_lang: self.script_lang,
             cache: self.expr_cache,
@@ -399,7 +400,11 @@ fn v_if(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: NodeId) {
             if let Node::SimpleExpression(e) = a.node(cond) {
                 let mark = ctx.access_log.len();
                 let mut scratch = out.scratch();
-                o.interpolate(ctx, &mut scratch, features::ALL, &e.content, e.loc.start.offset as usize, "(", ")", true);
+                // a bare `true` / `false` makes TypeScript's binder mark the other branch unreachable,
+                // where references lose their narrowing (and the `.value` assertions); parenthesized,
+                // it is an ordinary condition
+                let (prefix, suffix) = if matches!(e.content.trim(), "true" | "false") { ("((", "))") } else { ("(", ")") };
+                o.interpolate(ctx, &mut scratch, features::ALL, &e.content, e.loc.start.offset as usize, prefix, suffix, true);
                 let text = scratch.to_string();
                 out.extend(scratch.codes);
                 ctx.conditions.push(context::Condition { text, accesses: ctx.access_log[mark..].to_vec() });

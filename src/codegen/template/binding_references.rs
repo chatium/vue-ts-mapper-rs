@@ -19,6 +19,11 @@ pub struct Item {
     pub skipped: bool,
     pub in_type_query: bool,
     pub is_new_operand: bool,
+    /// inside a function written in the expression, where assertion narrowing of imports and
+    /// `let` / `var` bindings does not reach
+    pub in_function: bool,
+    /// the target of an assignment or `++` / `--`
+    pub is_write: bool,
 }
 
 /// `shouldIdentifierSkipped(ctx, text)`
@@ -35,6 +40,7 @@ pub struct Walker<'a> {
     pub units: &'a [u16],
     pub scopes: &'a mut Vec<IndexSet<String>>,
     pub items: Vec<Item>,
+    pub function_depth: usize,
 }
 
 impl<'a> Walker<'a> {
@@ -69,7 +75,14 @@ impl<'a> Walker<'a> {
             skipped,
             in_type_query: false,
             is_new_operand,
+            in_function: self.function_depth > 0,
+            is_write: false,
         });
+    }
+
+    fn yield_write(&mut self, id: &Ident) {
+        self.yield_id(id, false, true, false);
+        self.items.last_mut().unwrap().is_write = true;
     }
 
     /// `collectBindingNames(ts, name)` for a declaration / parameter name.
@@ -382,6 +395,7 @@ impl<'a> Walker<'a> {
     /// `forEachDeclarationsInFunction(node)`
     fn function(&mut self, f: &Function, name: Option<&Ident>) {
         let scope = self.push_scope();
+        self.function_depth += 1;
         if let Some(n) = name {
             let t = self.text(n);
             self.declare(scope, [t]);
@@ -409,11 +423,13 @@ impl<'a> Walker<'a> {
         if let Some(body) = &f.body {
             self.block(&body.stmts);
         }
+        self.function_depth -= 1;
         self.end_scope();
     }
 
     fn arrow(&mut self, a: &ArrowExpr) {
         let scope = self.push_scope();
+        self.function_depth += 1;
         for p in &a.params {
             let names = self.binding_names(p);
             self.declare(scope, names);
@@ -431,12 +447,14 @@ impl<'a> Walker<'a> {
             ArrowFunctionBody::FunctionBody(b) => self.block(&b.stmts),
             ArrowFunctionBody::Expr(e) => self.expr(e, scope, false),
         }
+        self.function_depth -= 1;
         self.end_scope();
     }
 
     /// A getter / setter / method of an object literal or class.
     fn accessor(&mut self, params: &[&Pat], type_params: Option<&TsTypeParamDecl>, ret: Option<&TsTypeAnn>, body: Option<&FunctionBody>) {
         let scope = self.push_scope();
+        self.function_depth += 1;
         for p in params {
             let names = self.binding_names(p);
             self.declare(scope, names);
@@ -453,6 +471,7 @@ impl<'a> Walker<'a> {
         if let Some(b) = body {
             self.block(&b.stmts);
         }
+        self.function_depth -= 1;
         self.end_scope();
     }
 
@@ -623,7 +642,10 @@ impl<'a> Walker<'a> {
                 let narrowing = matches!(u.op, UnaryOp::Bang | UnaryOp::TypeOf | UnaryOp::Delete);
                 self.expr(&u.arg, scope, narrowing);
             }
-            Expr::Update(u) => self.expr(&u.arg, scope, true),
+            Expr::Update(u) => match u.arg.as_ref() {
+                Expr::Ident(id) => self.yield_write(id),
+                arg => self.expr(arg, scope, true),
+            },
             Expr::Arrow(a) => self.arrow(a),
             Expr::Fn(f) => self.function(&f.function, f.ident.as_ref()),
             Expr::Class(c) => {
@@ -723,7 +745,7 @@ impl<'a> Walker<'a> {
     fn target(&mut self, t: &AssignTarget, scope: usize) {
         match t {
             AssignTarget::Simple(s) => match s {
-                SimpleAssignTarget::Ident(b) => self.yield_id(&b.id, false, true, false),
+                SimpleAssignTarget::Ident(b) => self.yield_write(&b.id),
                 SimpleAssignTarget::Paren(p) => self.target_expr(&p.expr, scope),
                 SimpleAssignTarget::Member(m) => self.member(m, scope),
                 SimpleAssignTarget::SuperProp(sp) => {
@@ -862,6 +884,8 @@ impl<'w, 'a> Visit for TypeVisitor<'w, 'a> {
                 skipped,
                 in_type_query: true,
                 is_new_operand: false,
+                in_function: self.w.function_depth > 0,
+                is_write: false,
             });
         }
     }

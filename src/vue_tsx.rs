@@ -116,6 +116,7 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
     let mut setup_bindings = IndexSet::new();
     let mut non_flowing_bindings = IndexSet::new();
     let mut script_setup_bindings = IndexSet::new();
+    let mut consts = IndexSet::new();
     if let (Some(ss), Some(ssr)) = (&script_setup, &script_setup_ranges) {
         let text = |sb: &ScriptBlock, r: &parsers::Range| sb.text.slice(r.start, r.end).to_string();
         let sr = script.as_ref().zip(script_ranges.as_ref());
@@ -129,7 +130,17 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
         for r in &ssr.bindings.non_flowing_bindings {
             non_flowing_bindings.insert(text(ss, r));
         }
+        for r in &ssr.bindings.consts {
+            consts.insert(text(ss, r));
+        }
         if let Some((s, sr)) = sr {
+            // a `<script>` binding's flags apply only when `<script setup>` doesn't declare the name
+            for r in &sr.bindings.consts {
+                let name = text(s, r);
+                if !script_setup_bindings.contains(&name) && !imported_components.contains(&name) {
+                    consts.insert(name);
+                }
+            }
             for r in &sr.bindings.components {
                 imported_components.insert(text(s, r));
             }
@@ -142,11 +153,12 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
         }
     }
     let define_props = script_setup_ranges.as_ref().and_then(|r| r.define_props.as_ref());
-    let mut destructured_props: IndexSet<String> =
+    let mut setup_consts: IndexSet<String> =
         define_props.and_then(|d| d.destructured.as_ref()).map(|d| d.keys().cloned().collect()).unwrap_or_default();
     if let Some(rest) = define_props.and_then(|d| d.destructured_rest.clone()) {
-        destructured_props.insert(rest);
+        setup_consts.insert(rest);
     }
+    setup_consts.extend(consts);
     let setup_refs: IndexSet<String> = script_setup_ranges
         .as_ref()
         .map(|r| r.use_template_ref.iter().filter_map(|u| u.name.clone()).collect())
@@ -202,7 +214,7 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
             is_vapor,
             script_lang: lang,
             component_name: &component_name,
-            destructured_props: &destructured_props,
+            setup_consts: &setup_consts,
             imported_components: &imported_components,
             setup_refs: &setup_refs,
             setup_bindings: &setup_bindings,
@@ -219,15 +231,18 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
         if style_blocks.is_empty() {
             return None;
         }
+        let reassert_bindings: IndexSet<String> =
+            dot_value_bindings.iter().filter(|n| non_flowing_bindings.contains(*n)).cloned().collect();
         Some(generate_style(&StyleOptions {
             vue,
             styles: &style_blocks,
             interp: InterpOpts {
-                destructured_props: &destructured_props,
+                setup_consts: &setup_consts,
                 imported_components: &imported_components,
                 setup_refs: &setup_refs,
                 setup_bindings: &setup_bindings,
                 dot_value_bindings,
+                reassert_bindings: &reassert_bindings,
                 lib: &vue.lib,
                 script_lang: lang,
                 cache: &expr_cache,
@@ -320,9 +335,30 @@ pub fn transform(file_name: &str, content: &str, base: &VueOptions, language_fea
     let volar = mappings::build(&codes, block_start);
     let generated = Text::new(&text);
     let original = Text::new(content);
-    let spans = mappings::to_span_mappings(&volar, &generated, &original, language_features);
-    let directives = mappings::to_diagnostic_directives(&volar)?;
-    let directives = mappings::with_synthesized_ignores(generated.len() as i64, &spans, &directives);
+    let mut spans = mappings::to_span_mappings(&volar, &generated, &original, language_features);
+    // a script left open at its end (a missing `}`, an unterminated comment) swallows the code
+    // generated after it, and TypeScript reports the missing token at the end of the virtual file:
+    // map that point to the end of the script
+    let open_script = [&script_setup, &script]
+        .into_iter()
+        .flatten()
+        .find(|sb| sb.parsed.errors.iter().any(|e| e.0 >= sb.text.len()));
+    if let Some(sb) = open_script {
+        let end = (sb.block.start_tag_end + sb.text.len()) as i64;
+        if !spans.iter().any(|s| s.2 < end && end < s.2 + s.3) {
+            spans.push((generated.len() as i64, 0, end, 0, mappings::ATOM, 0));
+        }
+    }
+    // `@vue-ignore` content does not verify, so the Volar-style ignores below cover it; only the
+    // expect directives are kept
+    let expects: Vec<_> =
+        mappings::to_diagnostic_directives(&volar)?.into_iter().filter(|d| d.4 == mappings::EXPECT).collect();
+    // debugging aid: leave unmapped virtual code unsuppressed, to see what the ignores hide
+    let directives = if std::env::var_os("VUE_TS_MAPPER_KEEP_UNMAPPED").is_some() {
+        expects
+    } else {
+        mappings::volar_ignores(generated.len() as i64, &volar, &expects)
+    };
 
     Ok(TransformResult {
         text,

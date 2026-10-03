@@ -11,6 +11,7 @@ use super::{
 use crate::code::{Code, Feat, Shorthand, Src, Verification, codes_to_string, features};
 use crate::codegen::script::export_declare_equal;
 use crate::codegen::template::binding_references::should_identifier_skipped;
+use crate::codegen::template::interpolation::dot_value;
 use crate::codegen::{
     Boundary, EOL, NL, Out, as_type, camelized, is_ts_lang, ref_brand_argument, string_literal_key, typed_var, unicode,
 };
@@ -116,12 +117,14 @@ pub fn component(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: NodeId
                     out.t(format!(", '{name}'"));
                 }
                 out.t(">[");
-                string_literal_key(
-                    out,
-                    &tag,
-                    start_tag_offset,
-                    features::SEMANTIC_WITHOUT_HIGHLIGHT.merge(features::VERIFICATION),
-                );
+                // unchecked unknown components: vue-tsc drops TS2339 / TS2551 here, the only errors a
+                // missing key can raise
+                let feat = if o.vue.check_unknown_components {
+                    features::SEMANTIC_WITHOUT_HIGHLIGHT.merge(features::VERIFICATION)
+                } else {
+                    features::SEMANTIC_WITHOUT_HIGHLIGHT
+                };
+                string_literal_key(out, &tag, start_tag_offset, feat);
                 out.t("]");
             });
 
@@ -171,7 +174,7 @@ pub fn component(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: NodeId
     out.t(format!("// @ts-ignore{NL}"));
     out.t(format!(
         "const {functional_var} = {}({component_var}, new {component_var}({{{NL}",
-        names::AS_FUNCTIONAL_COMPONENT0
+        if o.vue.check_unknown_props { names::AS_FUNCTIONAL_COMPONENT0 } else { names::AS_FUNCTIONAL_COMPONENT1 }
     ));
     out.t(format!("// @ts-ignore{NL}"));
     out.t(props_str.replace('\n', "\n// @ts-ignore\n"));
@@ -285,7 +288,7 @@ pub fn element(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: NodeId) 
     let (start_tag_offset, end_tag_offset) = element_tag_offsets(o, node);
     let mut failed = Vec::new();
 
-    out.t(format!("{}({}", names::AS_FUNCTIONAL_ELEMENT0, names::INTRINSICS));
+    out.t(format!("{}({}", as_functional_element(o), names::INTRINSICS));
     property_access(o, ctx, out, &el.tag, start_tag_offset, features::WITHOUT_HIGHLIGHT_AND_COMPLETION);
     if let Some(end) = end_tag_offset {
         out.t(", ");
@@ -341,7 +344,7 @@ pub fn fragment(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: NodeId)
 
     // special case for <template v-for="..." :key="..." />
     if !el.props.is_empty() {
-        out.t(format!("{}({}.template)(", names::AS_FUNCTIONAL_ELEMENT0, names::INTRINSICS));
+        out.t(format!("{}({}.template)(", as_functional_element(o), names::INTRINSICS));
         let b = Boundary::start(
             out,
             Src::Template,
@@ -591,6 +594,7 @@ pub fn prop_exp(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, prop: &Direct
     let e = a.node(exp);
     let loc = e.loc();
     let start = off(&loc.start);
+    let end = off(&loc.end);
     let arg_start = prop.arg.map(|x| a.node(x).loc().start.offset);
     let exp_start = prop.exp.map(|x| a.node(x).loc().start.offset);
     if arg_start != exp_start {
@@ -605,28 +609,32 @@ pub fn prop_exp(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, prop: &Direct
     let codes = |out: &mut Out| camelized(out, &loc.source, Src::Template, start, feat);
 
     // Keep in sync with the access strategy in interpolation.rs.
-    if o.destructured_props.contains(&var_name) || o.imported_components.contains(&var_name) {
+    if o.setup_consts.contains(&var_name) || o.imported_components.contains(&var_name) {
         codes(out);
     } else if should_identifier_skipped(&ctx.scopes, &var_name) {
         codes(out);
     } else if o.setup_refs.contains(&var_name) {
         codes(out);
-        out.seg(".value", Src::Template, start, features::VERIFICATION);
+        dot_value(out, Src::Template, start, end);
     } else if o.setup_bindings.contains(&var_name) {
         ctx.access_variable(Src::Template, &var_name, Some(start), false);
         if o.dot_value_bindings.contains(&var_name) {
             codes(out);
-            out.seg(".value", Src::Template, start, features::VERIFICATION);
+            dot_value(out, Src::Template, start, end);
         } else {
+            let b = Boundary::start(out, Src::Template, start, end, features::VERIFICATION);
             out.t(format!("{}(", names::UNWRAP));
             codes(out);
             out.t(format!(", {})", ref_brand_argument(&o.vue.lib, o.script_lang)));
+            b.end(out);
         }
     } else {
         ctx.access_variable(Src::Template, &var_name, Some(start), false);
+        let b = Boundary::start(out, Src::Template, start, end, features::VERIFICATION);
         out.t(names::CTX);
         out.t(".");
         codes(out);
+        b.end(out);
     }
 }
 
@@ -649,6 +657,10 @@ fn get_should_camelize(o: &TemplateOptions, node: NodeId, prop: NodeId, prop_nam
         && static_arg
         && hyphenate_attr(prop_name) == prop_name
         && (tag_type == ElementType::Slot || !o.vue.html_attributes.iter().any(|p| glob_match(prop_name, p)))
+}
+
+fn as_functional_element(o: &TemplateOptions) -> &'static str {
+    if o.vue.check_unknown_props { names::AS_FUNCTIONAL_ELEMENT0 } else { names::AS_FUNCTIONAL_ELEMENT1 }
 }
 
 fn props_feat() -> Feat {
@@ -710,7 +722,9 @@ fn element_events(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: NodeI
     for &p in &a.el(node).props {
         let Node::Directive(d) = a.node(p) else { continue };
         let static_arg = exp_of(a, d.arg).is_some_and(|e| e.is_static);
-        if !((d.name == "on" && static_arg) || (d.name == "model" && (d.arg.is_none() || static_arg))) {
+        if !((d.name == "on" && static_arg)
+            || (o.vue.strict_v_model && d.name == "model" && (d.arg.is_none() || static_arg)))
+        {
             continue;
         }
         let arg = d.arg.map(|x| a.node(x).loc());
@@ -752,7 +766,8 @@ fn element_events(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: NodeI
         let event_var = ctx.internal_variable();
         let pv = ctx.component_props_var(comp);
         let event_type = format!(
-            "Partial<{}<typeof {pv}, typeof {emits_var}, '{}', '{}', '{}'>>",
+            "{}Partial<{}<typeof {pv}, typeof {emits_var}, '{}', '{}', '{}'>>",
+            if o.vue.check_unknown_events { "" } else { "Record<string, unknown> & " },
             names::T_RESOLVE_EVENT,
             def.prop_name,
             def.emit_name,
@@ -810,6 +825,12 @@ pub fn event_expression(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, prop:
         return;
     };
     let parsed = ts_ast::parse_as(&e.content, false, false);
+    if matches!(&parsed.program, Some(swc_core::ecma::ast::Program::Script(s)) if s.body.is_empty()) {
+        // `@submit.prevent=""` (or only a comment): a modifier-only handler; `()` would be a syntax
+        // error, which stops type checking of the whole program
+        out.t("() => {}");
+        return;
+    }
     let shape = statement_shape(&parsed, &e.content);
     let start = off(&e.loc.start);
     if !shape.is_compound {
@@ -848,7 +869,12 @@ fn model_event_expression(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, pro
     };
     let mark = ctx.access_log.len();
     let mut codes = out.scratch();
-    o.interpolate(ctx, &mut codes, features::VERIFICATION, &e.content, off(&e.loc.start), "", "", true);
+    // parenthesized, so that `v-model="x as T"` stays a valid assignment target; the boundary maps
+    // the `(` where TypeScript reports assignment errors
+    let start = off(&e.loc.start);
+    let b = Boundary::start(&mut codes, Src::Template, start, start + len16(&e.content), features::VERIFICATION);
+    o.interpolate(ctx, &mut codes, features::VERIFICATION, &e.content, start, "(", ")", true);
+    b.end(&mut codes);
     out.t(format!("// @ts-ignore{NL}"));
     out.t(format!("(...[$event]) => {{{NL}"));
     reasserts(o, ctx, out, mark);
@@ -939,7 +965,7 @@ fn element_directives(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: N
         let b = Boundary::start(out, Src::Template, off(&d.loc.start), off(&d.loc.end), features::VERIFICATION);
         if o.is_vapor && !is_built_in_directive(&d.name) {
             // vapor custom directives receive a value getter instead of a vdom binding object
-            directive_identifier(ctx, out, d);
+            directive_identifier(o, ctx, out, d);
             out.t(format!("({}(null), ", names::NON_NULL));
             directive_value(o, ctx, out, d, false);
             directive_arg(o, ctx, out, d, false);
@@ -947,7 +973,7 @@ fn element_directives(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: N
             out.t(")");
         } else {
             out.t(format!("{}(", names::AS_FUNCTIONAL_DIRECTIVE));
-            directive_identifier(ctx, out, d);
+            directive_identifier(o, ctx, out, d);
             out.t(format!(
                 ", {})({}(null), {{ ...{}, ",
                 as_type(&format!("import('{}').ObjectDirective", o.vue.lib), o.script_lang),
@@ -964,20 +990,28 @@ fn element_directives(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, node: N
     }
 }
 
-fn directive_identifier(ctx: &mut Ctx, out: &mut Out, d: &DirectiveNode) {
+fn directive_identifier(o: &TemplateOptions, ctx: &mut Ctx, out: &mut Out, d: &DirectiveNode) {
     let raw_name = format!("v-{}", d.name);
     let start = off(&d.loc.start);
     let b = Boundary::start(out, Src::Template, start, start + len16(&raw_name), features::VERIFICATION);
     out.t(names::DIRECTIVES);
-    out.t(".");
     let builtin = is_built_in_directive(&d.name);
+    let name = camelize(&raw_name);
+    if !is_identifier(&name) {
+        // the HTML tokenizer keeps stray characters in attribute names (`v-else"`); a property
+        // access would be a TS syntax error, which stops type checking of the whole program
+        out.t(format!("[{}]", serde_json::to_string(&name).unwrap()));
+        b.end(out);
+        return;
+    }
+    out.t(".");
     let feat = Feat {
-        verification: if builtin { Verification::False } else { Verification::True },
+        verification: if o.vue.check_unknown_directives && !builtin { Verification::True } else { Verification::False },
         ..features::WITHOUT_HIGHLIGHT_AND_COMPLETION
     };
     camelized(out, &raw_name, Src::Template, start, feat);
     if !builtin {
-        ctx.access_variable(Src::Template, &camelize(&raw_name), Some(start), false);
+        ctx.access_variable(Src::Template, &name, Some(start), false);
     }
     b.end(out);
 }

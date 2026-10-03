@@ -260,23 +260,11 @@ impl Fnv128 {
 }
 
 const UNKNOWN_OPTION: u32 = 1;
-const REMOVED_OPTION: u32 = 2;
 const INVALID_OPTION_TYPE: u32 = 3;
 
 /// `toOptionDiagnostics(options)`
 fn option_diagnostics(options: Option<&Map<String, Value>>) -> Vec<Value> {
     let Some(options) = options else { return vec![] };
-    let removed = |k: &str| -> Option<&'static str> {
-        Some(match k {
-            "strictTemplates" => "Template checking now follows the TypeScript settings for the script's language, so this option has no equivalent.",
-            "strictVModel" => "`v-model` is always checked strictly, so this option has no equivalent.",
-            "checkUnknownComponents" => "Unknown components are always reported; declare them in the `GlobalComponents` interface instead.",
-            "checkUnknownDirectives" => "Unknown directives are always reported; declare them in the `GlobalDirectives` interface instead.",
-            "checkUnknownEvents" => "Unknown events are always reported, so this option has no equivalent.",
-            "checkUnknownProps" => "Unknown props are always reported, so this option has no equivalent.",
-            _ => return None,
-        })
-    };
     let d = |path: Value, message: String, code: u32| json!({ "path": path, "messageText": message, "code": code });
     let mut out = Vec::new();
     for (key, value) in options {
@@ -286,10 +274,6 @@ fn option_diagnostics(options: Option<&Map<String, Value>>) -> Vec<Value> {
         let path = json!([key]);
         if key == "vueCompilerOptions" {
             out.push(d(path, "Options are flattened in v4: pass them directly under the mapper's `options` instead of nesting them in `vueCompilerOptions`.".into(), UNKNOWN_OPTION));
-            continue;
-        }
-        if let Some(hint) = removed(key) {
-            out.push(d(path, format!("Option '{key}' was removed in v4. {hint}"), REMOVED_OPTION));
             continue;
         }
         let invalid = |msg: String| d(json!([key]), msg, INVALID_OPTION_TYPE);

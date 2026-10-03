@@ -48,6 +48,12 @@ pub struct VueOptions {
     pub extensions: Vec<String>,
     pub jsx_slots: bool,
     pub strict_css_modules: bool,
+    /// vue-tsc 3.3 strictness: off by default, all set by `strictTemplates`
+    pub strict_v_model: bool,
+    pub check_unknown_props: bool,
+    pub check_unknown_events: bool,
+    pub check_unknown_directives: bool,
+    pub check_unknown_components: bool,
     pub infer_component_dollar_el: bool,
     pub infer_component_dollar_refs: bool,
     pub infer_template_dollar_attrs: bool,
@@ -95,6 +101,11 @@ pub fn default_options(target: f64, lib: &str, types_root: &str) -> VueOptions {
         extensions: strings(&[".vue"]),
         jsx_slots: false,
         strict_css_modules: false,
+        strict_v_model: false,
+        check_unknown_props: false,
+        check_unknown_events: false,
+        check_unknown_directives: false,
+        check_unknown_components: false,
         infer_component_dollar_el: false,
         infer_component_dollar_refs: false,
         infer_template_dollar_attrs: false,
@@ -212,6 +223,12 @@ impl Resolver {
                         });
                     }
                 }
+                "strictTemplates" => {
+                    // `??=`: an option set earlier (or explicitly) wins
+                    for k in ["strictVModel", "checkUnknownProps", "checkUnknownEvents", "checkUnknownDirectives", "checkUnknownComponents"] {
+                        self.options.entry(k).or_insert(Value::Bool(truthy(value)));
+                    }
+                }
                 // Vue language plugins are JavaScript; the Rust mapper cannot load them
                 "plugins" => {}
                 _ => {
@@ -235,6 +252,11 @@ impl Resolver {
         };
         flag("jsxSlots", &mut o.jsx_slots);
         flag("strictCssModules", &mut o.strict_css_modules);
+        flag("strictVModel", &mut o.strict_v_model);
+        flag("checkUnknownProps", &mut o.check_unknown_props);
+        flag("checkUnknownEvents", &mut o.check_unknown_events);
+        flag("checkUnknownDirectives", &mut o.check_unknown_directives);
+        flag("checkUnknownComponents", &mut o.check_unknown_components);
         flag("inferComponentDollarEl", &mut o.infer_component_dollar_el);
         flag("inferComponentDollarRefs", &mut o.infer_component_dollar_refs);
         flag("inferTemplateDollarAttrs", &mut o.infer_template_dollar_attrs);

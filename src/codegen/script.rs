@@ -204,6 +204,9 @@ fn global_types_reference(out: &mut Out, vue: &VueOptions, file_name: &str) {
     };
     let json = |s: String| serde_json::to_string(&s).unwrap();
     out.t(format!("/// <reference types={} />{NL}", json(format!("{types_path}/template-helpers.d.ts"))));
+    if !vue.check_unknown_props {
+        out.t(format!("/// <reference types={} />{NL}", json(format!("{types_path}/props-fallback.d.ts"))));
+    }
     if vue.lib == "vue" && vue.target < 3.5 {
         out.t(format!("/// <reference types={} />{NL}", json(format!("{types_path}/vue-3.4-shims.d.ts"))));
     }
@@ -293,6 +296,8 @@ fn generic_fn(
         let pl = c.local_types.name(PRETTIFY_LOCAL);
         out.t(format!(" & {pl}<{}>", prop_types.join(" & ")));
     }
+    // `props-fallback.d.ts` declares it when unknown props are allowed
+    out.t(" & (typeof globalThis extends { __VLS_PROPS_FALLBACK: infer P } ? P : {})");
     out.t(EOL);
     out.t("\texpose: (exposed: ");
     if ssr.define_expose.is_some() {
