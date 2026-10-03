@@ -7,15 +7,34 @@
 		"type": "git",
 		"url": "git+https://github.com/chatium/vue-ts-mapper-rs.git"
 	},
-	"keywords": ["vue", "typescript", "tsgo", "content-mapper", "type-check"],
-	"files": ["launcher.cjs", "bin", "types", "README.md", "LICENSE"],
+	"keywords": [
+		"vue",
+		"typescript",
+		"tsgo",
+		"content-mapper",
+		"type-check"
+	],
+	"files": [
+		"launcher.cjs",
+		"vue-tsgo.cjs",
+		"bin",
+		"types",
+		"README.md",
+		"LICENSE"
+	],
 	"typescript": {
 		"contentMapper": {
-			"exec": ["node", "launcher.cjs"],
+			"exec": [
+				"node",
+				"launcher.cjs"
+			],
 			"dynamicConfig": true
 		}
 	},
 	"engines": {
 		"node": ">=18"
+	},
+	"bin": {
+		"vue-tsgo": "vue-tsgo.cjs"
 	}
 }

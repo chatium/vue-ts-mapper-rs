@@ -43,6 +43,21 @@ and run the compiler with external code enabled:
 npx tsc --runExternalCode --noEmit
 ```
 
+### Without touching the tsconfig
+
+`vue-tsgo` runs the compiler with the mapper registered on top of an existing tsconfig (it
+extends it from a temporary directory, since TypeScript resolves mapper packages from the
+tsconfig's location). Nothing needs installing in the project:
+
+```sh
+npm exec --yes \
+  --package=typescript@7.1.0-dev.20261003.1 \
+  --package=https://github.com/chatium/vue-ts-mapper-rs/releases/download/v0.1.0/chatium-vue-ts-mapper-rs-0.1.0.tgz \
+  -- vue-tsgo --noEmit
+```
+
+`vue-tsgo` takes the options of `tsc` (`-p` picks the tsconfig, `./tsconfig.json` by default).
+
 ### Options
 
 The mapper entry's `options` take the Vue compiler options of `@vue/language-core` (`target`,
