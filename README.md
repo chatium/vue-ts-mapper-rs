@@ -13,8 +13,8 @@ or JavaScript, and it checks a project in a fraction of `vue-tsc`'s time and mem
 
 ## Usage
 
-Install TypeScript 7.1 and the mapper (prebuilt binaries for macOS, Linux and Windows, x64 and
-arm64, are in the package):
+Install TypeScript 7.1 and the mapper (prebuilt binaries for macOS and Linux, x64 and arm64, and
+Windows x64 are in the package):
 
 ```sh
 npm i -D typescript@7.1.0-dev.20261003.1 @chatium/vue-ts-mapper-rs
