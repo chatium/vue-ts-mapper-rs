@@ -48,7 +48,14 @@ try {
 	if (result.error) {
 		console.error(result.error);
 	}
-	status = result.status ?? 1;
+	if (result.signal) {
+		// e.g. SIGKILL from the OOM killer: report it, and exit the way a shell does
+		console.error(`vue-tsgo: tsc killed by ${result.signal}`);
+		status = 128 + os.constants.signals[result.signal];
+	}
+	else {
+		status = result.status ?? 1;
+	}
 }
 finally {
 	fs.rmSync(dir, { recursive: true, force: true });
