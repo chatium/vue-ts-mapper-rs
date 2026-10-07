@@ -322,7 +322,8 @@ fn option_diagnostics(options: Option<&Map<String, Value>>) -> Vec<Value> {
             "jsxSlots" | "strictCssModules" | "inferComponentDollarEl" | "inferComponentDollarRefs"
             | "inferTemplateDollarAttrs" | "inferTemplateDollarEl" | "inferTemplateDollarRefs"
             | "inferTemplateDollarSlots" | "skipTemplateCodegen" | "vapor" | "fallthroughAttributes"
-            | "checkRequiredFallthroughAttributes" | "resolveStyleImports" => {
+            | "checkRequiredFallthroughAttributes" | "resolveStyleImports" | "strictTemplates" | "strictVModel"
+            | "checkUnknownProps" | "checkUnknownEvents" | "checkUnknownDirectives" | "checkUnknownComponents" => {
                 if !value.is_boolean() {
                     out.push(invalid(format!("Option '{key}' requires a boolean.")));
                 }
@@ -336,6 +337,14 @@ fn option_diagnostics(options: Option<&Map<String, Value>>) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strictness_options_are_known() {
+        let options = json!({ "strictTemplates": true, "checkUnknownProps": false, "strictVModel": true });
+        assert_eq!(option_diagnostics(options.as_object()), Vec::<Value>::new());
+        let options = json!({ "checkUnknownEvents": 1 });
+        assert_eq!(option_diagnostics(options.as_object())[0]["code"], INVALID_OPTION_TYPE);
+    }
 
     #[test]
     fn jsonc() {
