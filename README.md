@@ -56,6 +56,15 @@ npm exec --yes \
   -- vue-tsgo --noEmit
 ```
 
+When [`@chatium/tsc-rs`](https://www.npmjs.com/package/@chatium/tsc-rs) (the Rust port of
+TypeScript 7, faster on Vue projects; builds for macOS and Linux, x64 and arm64) is installed with a
+build for the machine, `vue-tsgo` runs it instead of `typescript`; `VUE_TSGO_TSC=typescript` runs
+`typescript`:
+
+```sh
+npm exec --yes --package=@chatium/tsc-rs --package=@chatium/vue-ts-mapper-rs -- vue-tsgo --noEmit
+```
+
 `vue-tsgo` takes the options of `tsc` (`-p` picks the tsconfig, `./tsconfig.json` by default).
 A tsconfig that uses `${configDir}` or relative `types` entries resolves them against that
 temporary directory; register the mapper in the tsconfig instead.

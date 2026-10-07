@@ -1,6 +1,6 @@
 [package]
 name = "vue-ts-mapper-rs"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 license = "MIT"
 description = "TypeScript 7 content mapper for Vue single-file components, written in Rust"
