@@ -13,3 +13,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --release --locked
       - run: node --test tests/vue-tsgo.test.cjs
+      - run: node --test tests/launcher.test.cjs

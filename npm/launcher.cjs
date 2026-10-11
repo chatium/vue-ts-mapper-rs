@@ -13,14 +13,18 @@ if (!fs.existsSync(binary)) {
 }
 const args = [`--types-root=${path.join(__dirname, 'types')}`, ...process.argv.slice(2)];
 
-if (typeof process.execve === 'function') {
-	// Node >= 22.15: replace this process, so nothing sits between TypeScript and the mapper
-	process.execve(binary, [binary, ...args], process.env);
-}
-else {
-	const { status, error } = require('node:child_process').spawnSync(binary, args, { stdio: 'inherit' });
-	if (error) {
-		console.error(error);
+// Node >= 22.15 replaces this process, so nothing sits between TypeScript and the mapper. Windows has
+// process.execve too, but it throws ERR_FEATURE_UNAVAILABLE_ON_PLATFORM there.
+if (process.platform !== 'win32' && typeof process.execve === 'function') {
+	try {
+		process.execve(binary, [binary, ...args], process.env);
 	}
-	process.exit(status ?? 1);
+	catch {
+		// unavailable here: spawn it below
+	}
 }
+const { status, error } = require('node:child_process').spawnSync(binary, args, { stdio: 'inherit' });
+if (error) {
+	console.error(error);
+}
+process.exit(status ?? 1);
