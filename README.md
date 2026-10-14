@@ -67,6 +67,12 @@ smallest in memory: on our Vue projects about 3 times faster than `typescript` 7
 npm exec --yes --package=tsrs --package=@chatium/vue-ts-mapper-rs -- vue-tsgo --noEmit
 ```
 
+`VUE_TSGO_MAX_MEMORY=<size>` (for example `1G` or `1500M`) keeps `tsrs` near that much memory: over
+it, `tsrs` retires its largest checker between files (`--maxMemory`), down to checkers of 16 MB
+(`TSRS_RETIRE_MIN`, unless set). On our largest Vue projects `1G` lowers the peak by a quarter to a
+third at about the same speed; the parsed program itself is the floor. `@chatium/tsc-rs` and
+`typescript` ignore it.
+
 `vue-tsgo` takes the options of `tsc` (`-p` picks the tsconfig, `./tsconfig.json` by default).
 A tsconfig that uses `${configDir}` or relative `types` entries resolves them against that
 temporary directory; register the mapper in the tsconfig instead.

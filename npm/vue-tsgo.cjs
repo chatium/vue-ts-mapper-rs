@@ -6,6 +6,9 @@
 // The compiler is the first of tsrs and @chatium/tsc-rs (Rust ports of TypeScript 7, tsrs the faster
 // one) that is installed with a build for this machine, else `typescript` 7. VUE_TSGO_TSC=tsc-rs starts
 // at @chatium/tsc-rs, VUE_TSGO_TSC=typescript runs `typescript`.
+// VUE_TSGO_MAX_MEMORY=<size> (for example 1500M or 2G) keeps tsrs near that much memory: over it, tsrs retires
+// its largest checker between files (--maxMemory), down to checkers of 16 MB (TSRS_RETIRE_MIN; tsrs's default of
+// 128 MB is more than a checker holds on most projects). The other compilers ignore it.
 //
 //   npx vue-tsgo [-p tsconfig.json] [tsc options...]
 const fs = require('node:fs');
@@ -47,7 +50,8 @@ try {
 			options: { languageFeatures: false },
 		}],
 	}));
-	const result = spawnSync(tsc[0], [...tsc.slice(1), '--runExternalCode', '-p', sidecar, ...rest], { stdio: 'inherit' });
+	const env = process.env.VUE_TSGO_MAX_MEMORY ? { ...process.env, TSRS_RETIRE_MIN: process.env.TSRS_RETIRE_MIN || '16M' } : process.env;
+	const result = spawnSync(tsc[0], [...tsc.slice(1), '--runExternalCode', '-p', sidecar, ...rest], { stdio: 'inherit', env });
 	if (result.error) {
 		console.error(result.error);
 	}
@@ -84,7 +88,8 @@ function findTsc() {
 			// the platform package is next to the real path of the main one (pnpm)
 			const dir = findPackage([fs.realpathSync(pkg)], platform);
 			if (dir && fs.existsSync(path.join(dir, binary))) {
-				return [path.join(dir, binary)];
+				const maxMemory = name === 'tsrs' && process.env.VUE_TSGO_MAX_MEMORY;
+				return [path.join(dir, binary), ...(maxMemory ? ['--maxMemory', maxMemory] : [])];
 			}
 		}
 	}
