@@ -1354,7 +1354,7 @@ dependencies = [
 
 [[package]]
 name = "vue-ts-mapper-rs"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "indexmap",
  "serde",

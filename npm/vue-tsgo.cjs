@@ -3,8 +3,9 @@
 // `tsc` (TypeScript 7) with this mapper registered for `.vue` files, for projects whose tsconfig
 // does not register it. TypeScript resolves a mapper package from the tsconfig's location, so the
 // project's tsconfig is extended from a temporary directory where this package resolves.
-// The compiler is @chatium/tsc-rs (the Rust port of TypeScript 7) when it is installed with a build
-// for this machine, else `typescript` 7. VUE_TSGO_TSC=typescript skips tsc-rs.
+// The compiler is the first of tsrs and @chatium/tsc-rs (Rust ports of TypeScript 7, tsrs the faster
+// one) that is installed with a build for this machine, else `typescript` 7. VUE_TSGO_TSC=tsc-rs starts
+// at @chatium/tsc-rs, VUE_TSGO_TSC=typescript runs `typescript`.
 //
 //   npx vue-tsgo [-p tsconfig.json] [tsc options...]
 const fs = require('node:fs');
@@ -67,13 +68,24 @@ process.exit(status);
 // The command line of the compiler.
 function findTsc() {
 	const starts = [__dirname, path.dirname(process.argv[1]), process.cwd()];
-	const tscRs = process.env.VUE_TSGO_TSC !== 'typescript' && findPackage(starts, '@chatium/tsc-rs');
-	if (tscRs) {
-		// Its native tsc is in the platform package next to it (pnpm keeps that next to the real path).
-		const platform = findPackage([fs.realpathSync(tscRs)], `@chatium/tsc-rs-${process.platform}-${process.arch}`);
-		const exe = platform && path.join(platform, 'lib', process.platform === 'win32' ? 'tsc.exe' : 'tsc');
-		if (exe && fs.existsSync(exe)) {
-			return [exe];
+	const exe = process.platform === 'win32' ? '.exe' : '';
+	// [package, its platform packages in order of preference, the binary in them]
+	const ports = [
+		['tsrs', process.platform === 'linux'
+			// the GNU build (PGO, BOLT) needs glibc; the musl build is static and runs anywhere
+			? [...(hasGlibc() ? [`@ts-rs/linux-${process.arch}-gnu`] : []), `@ts-rs/linux-${process.arch}-musl`]
+			: [`@ts-rs/${process.platform}-${process.arch}`], `tsrs${exe}`],
+		['@chatium/tsc-rs', [`@chatium/tsc-rs-${process.platform}-${process.arch}`], `lib/tsc${exe}`],
+	];
+	const skip = { 'tsc-rs': 1, typescript: 2 }[process.env.VUE_TSGO_TSC] ?? 0;
+	for (const [name, platforms, binary] of ports.slice(skip)) {
+		const pkg = findPackage(starts, name);
+		for (const platform of pkg ? platforms : []) {
+			// the platform package is next to the real path of the main one (pnpm)
+			const dir = findPackage([fs.realpathSync(pkg)], platform);
+			if (dir && fs.existsSync(path.join(dir, binary))) {
+				return [path.join(dir, binary)];
+			}
 		}
 	}
 	const typescript = findPackage(starts, 'typescript', pkg => Number(readJson(path.join(pkg, 'package.json')).version.split('.')[0]) >= 7);
@@ -82,6 +94,16 @@ function findTsc() {
 	}
 	console.error('vue-tsgo: TypeScript 7.1 or later is required (npm i -D typescript@next)');
 	process.exit(1);
+}
+
+function hasGlibc() {
+	try {
+		process.report.excludeNetwork = true;
+		return Boolean(process.report.getReport().header.glibcVersionRuntime);
+	}
+	catch {
+		return false;
+	}
 }
 
 // The first node_modules/<name> up from each start that `accept`s.

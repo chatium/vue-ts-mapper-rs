@@ -56,13 +56,15 @@ npm exec --yes \
   -- vue-tsgo --noEmit
 ```
 
-When [`@chatium/tsc-rs`](https://www.npmjs.com/package/@chatium/tsc-rs) (the Rust port of
-TypeScript 7, faster on Vue projects; builds for macOS and Linux, x64 and arm64) is installed with a
-build for the machine, `vue-tsgo` runs it instead of `typescript`; `VUE_TSGO_TSC=typescript` runs
+`vue-tsgo` runs the first of these that is installed with a build for the machine:
+[`tsrs`](https://www.npmjs.com/package/tsrs) (a Rust port of TypeScript 7, the fastest and the
+smallest in memory: on our Vue projects about 3 times faster than `typescript` 7 at half the memory),
+[`@chatium/tsc-rs`](https://www.npmjs.com/package/@chatium/tsc-rs) (another Rust port), then
+`typescript`. `VUE_TSGO_TSC=tsc-rs` starts at `@chatium/tsc-rs`, `VUE_TSGO_TSC=typescript` runs
 `typescript`:
 
 ```sh
-npm exec --yes --package=@chatium/tsc-rs --package=@chatium/vue-ts-mapper-rs -- vue-tsgo --noEmit
+npm exec --yes --package=tsrs --package=@chatium/vue-ts-mapper-rs -- vue-tsgo --noEmit
 ```
 
 `vue-tsgo` takes the options of `tsc` (`-p` picks the tsconfig, `./tsconfig.json` by default).
